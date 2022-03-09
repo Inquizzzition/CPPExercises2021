@@ -27,18 +27,16 @@ cv::Mat buildTheMaze(cv::Mat pano0, cv::Mat pano1) {
     rassert(pano0.rows == pano1.rows, 3295782390572300072);
 
     const int MIN_PENALTY = 1;
-    const int BIG_PENALTY = 100000;
+    const int BIG_PENALTY = 1e9;
     cv::Mat maze(pano0.rows, pano0.cols, CV_32SC1, cv::Scalar(0)); // создали лабиринт, размером с панораму, каждый пиксель - int
 
     for (int j = 0; j < pano0.rows; ++j) {
         for (int i = 0; i < pano0.cols; ++i) {
             cv::Vec3b color0 = pano0.at<cv::Vec3b>(j, i);
             cv::Vec3b color1 = pano1.at<cv::Vec3b>(j, i);
-
-            int penalty = 0; // TODO найдите насколько плохо идти через этот пиксель:
+            int penalty = abs(color0[0]-color1[0])+abs(color0[1]-color1[1])+abs(color0[2]-color1[2]);// TODO найдите насколько плохо идти через этот пиксель:
             // BIG_PENALTY - если этот пиксель отсутствует в pano0 или в pano1
             // разница между цветами этого пикселя в pano0 и в pano1 (но не меньше MIN_PENALTY)
-
             maze.at<int>(j, i) = penalty;
         }
     }
