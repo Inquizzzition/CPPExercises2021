@@ -15,13 +15,37 @@
 
 
 // Эта функция говорит нам правда ли пиксель отмаскирован, т.е. отмечен как "удаленный", т.е. белый
-bool isPixelMasked(cv::Mat mask, int j, int i) {
+bool isPixelMasked(cv::Mat &mask, int j, int i) {
     rassert(j >= 0 && j < mask.rows, 372489347280017);
     rassert(i >= 0 && i < mask.cols, 372489347280018);
     rassert(mask.type() == CV_8UC3, 2348732984792380019);
 
-    // TODO проверьте белый ли пиксель
+    if(mask.at<cv::Vec3b>(j,i)[0] >= 255 && mask.at<cv::Vec3b>(j,i)[1] >= 255 && mask.at<cv::Vec3b>(j,i)[2] >= 255)
+        return true;
     return false;
+}
+/*
+ * (-2,2) (-1,2) (0,2) (1,2) (2,2)
+ * (-2,1) (-1,1) (0,1) (1,1) (2,1)
+ * (-2,0) (-1,0) (0,0) (1,0) (2,0)
+ * (-2,-1) (-1,-1) (0,-1) (1,-1) (1,-2)
+ * (-2,-2) (-1,-2) (0,-2) (2,-1) (2,-2)
+*/
+double estimateQuality(cv::Mat &image, int r1, int c1, int r2, int c2){
+    std::vector<int> dx = {-2,-1,0,1,2,-2,-1,0,1,2,-2,-1,0,1,2,-2,-1,0,1,2,-2,-1,0,1,2};
+    std::vector<int> dy = {2,2,2,2,2,1,1,1,1,1,0,0,0,0,0,-1,-1,-1,-1,-1,-2,-2,-2,-2,-2};
+    const int colsNum = image.cols;
+    const int rowsNum = image.rows;
+    double quol = 0;
+    for(int i = 0; i < dx.size();++i){
+        if(r1+dx[i] >= 0 && r1+dx[i] < rowsNum && r2+dx[i] >= 0 && r2+dx[i] < rowsNum && c1+dy[i] >= 0 && c1+dy[i] < colsNum && c2+dy[i] >= 0 && c2+dy[i] < colsNum){
+            double d0 = abs(image.at<Vec3b>(r1+dx[i],c1+dy[i])[0] - image.at<Vec3b>(r2+dx[i],c2+dy[i])[0]);
+            double d1 = abs(image.at<Vec3b>(r1+dx[i],c1+dy[i])[1] - image.at<Vec3b>(r2+dx[i],c2+dy[i])[1]);
+            double d2 = abs(image.at<Vec3b>(r1+dx[i],c1+dy[i])[2] - image.at<Vec3b>(r2+dx[i],c2+dy[i])[2]);
+            quol += abs(d0+d1+d2);
+        }
+    }
+    return quol;
 }
 
 void run(int caseNumber, std::string caseName) {
@@ -34,7 +58,8 @@ void run(int caseNumber, std::string caseName) {
 
     // TODO напишите rassert сверяющий разрешение картинки и маски
     // TODO выведите в консоль это разрешение картинки
-    // std::cout << "Image resolution: " << ... << std::endl;
+    rassert(mask.rows == original.rows && mask.cols == original.cols, 896324873461343274);
+    std::cout << "Image resolution: " << mask.rows << ' ' << mask.cols << std::endl;
 
     // создаем папку в которую будем сохранять результаты - lesson18/resultsData/ИМЯ_НАБОРА/
     std::string resultsDir = "lesson18/resultsData/";
@@ -54,16 +79,46 @@ void run(int caseNumber, std::string caseName) {
     // TODO сохраните в папку с результатами то что получилось под названием "2_original_cleaned.png"
     // TODO посчитайте и выведите число отмаскированных пикселей (числом и в процентах) - в таком формате:
     // Number of masked pixels: 7899/544850 = 1%
-
+    int maskedPixelNumber = 0;
+    std::vector<std::pair<int,int>> masked;
+    for(int i = 0; i < original.cols; ++i){
+        for(int j = 0; j < original.rows; ++j){
+            if(isPixelMasked(mask, j, i)){
+                original.at<cv::Vec3b>(j,i) = mask.at<cv::Vec3b>(j,i);
+                maskedPixelNumber++;
+                masked.emplace_back(std::make_pair(j,i));
+            }
+        }
+    }
+    std::cout << "Number of masked pixels: " << maskedPixelNumber << '/' << original.cols*original.rows << " = " << static_cast<double>(maskedPixelNumber)/static_cast<double>(original.cols*original.rows) * 100. << '%';
     FastRandom random(32542341); // этот объект поможет вам генерировать случайные гипотезы
-
+    const int colsNum = original.cols;
+    const int rowsNum = original.rows;
     // TODO 10 создайте картинку хранящую относительные смещения - откуда брать донора для заплатки, см. подсказки про то как с нею работать на сайте
+    cv::Mat shift(mask.rows, mask.cols, CV_32SC2);
     // TODO 11 во всех отмаскированных пикселях: заполните эту картинку с относительными смещениями - случайными смещениями (но чтобы они и их окрестность 5х5 не выходила за пределы картинки)
     // TODO 12 во всех отмаскированных пикселях: замените цвет пиксела А на цвет пикселя Б на который указывает относительное смещение пикселя А
+    for(auto& i : masked){
+        int dc = random.next(2, colsNum-2);
+        int dr = random.next(2,rowsNum-2);
+        shift.at<cv::Vec2d>(i.first, i.second) = cv::Vec2d(dr, dc);
+        original.at<cv::Vec3b>(i.first, i.second) = original.at<cv::Vec3b>(dr,dc);
+    }
     // TODO 13 сохраните получившуюся картинку на диск
+    cv::imwrite(resultsDir + "3randomShifting.png", original);
     // TODO 14 выполняйте эти шаги 11-13 много раз, например 1000 раз (оберните просто в цикл, сохраняйте картинку на диск только на каждой десятой или сотой итерации)
     // TODO 15 теперь давайте заменять значение относительного смещения на новой только если новая случайная гипотеза - лучше старой, добавьте оценку "насколько смещенный патч 5х5 похож на патч вокруг пикселя если их наложить"
-    //
+
+    for(int xd = 0; xd < 1000; ++xd){
+        for(auto& i : masked){
+            int dr = random.next(2,rowsNum-2);
+            int dc = random.next(2, colsNum-2);
+            int r = shift.at<cv::Vec2d>(i.first, i.second)[0];
+            int c = shift.at<cv::Vec2d>(i.first, i.second)[1];
+            original.at<cv::Vec3b>(i.first, i.second) = mask.at<cv::Vec3b>(dr,dc);
+        }
+    }
+
     // Ориентировочный псевдокод-подсказка получившегося алгоритма:
     // cv::Mat shifts(...); // матрица хранящая смещения, изначально заполнена парами нулей
     // cv::Mat image = original; // текущая картинка
