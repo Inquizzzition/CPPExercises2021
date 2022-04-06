@@ -39,9 +39,9 @@ double estimateQuality(cv::Mat &image, int r1, int c1, int r2, int c2){
     double quol = 0;
     for(int i = 0; i < dx.size();++i){
         if(r1+dx[i] >= 0 && r1+dx[i] < rowsNum && r2+dx[i] >= 0 && r2+dx[i] < rowsNum && c1+dy[i] >= 0 && c1+dy[i] < colsNum && c2+dy[i] >= 0 && c2+dy[i] < colsNum){
-            double d0 = abs(image.at<Vec3b>(r1+dx[i],c1+dy[i])[0] - image.at<Vec3b>(r2+dx[i],c2+dy[i])[0]);
-            double d1 = abs(image.at<Vec3b>(r1+dx[i],c1+dy[i])[1] - image.at<Vec3b>(r2+dx[i],c2+dy[i])[1]);
-            double d2 = abs(image.at<Vec3b>(r1+dx[i],c1+dy[i])[2] - image.at<Vec3b>(r2+dx[i],c2+dy[i])[2]);
+            double d1 = abs(image.at<cv::Vec3b>(r1+dx[i],c1+dy[i])[1] - image.at<cv::Vec3b>(r2+dx[i],c2+dy[i])[1]);
+            double d2 = abs(image.at<cv::Vec3b>(r1+dx[i],c1+dy[i])[2] - image.at<cv::Vec3b>(r2+dx[i],c2+dy[i])[2]);
+            double d0 = abs(image.at<cv::Vec3b>(r1+dx[i],c1+dy[i])[0] - image.at<cv::Vec3b>(r2+dx[i],c2+dy[i])[0]);
             quol += abs(d0+d1+d2);
         }
     }
@@ -99,25 +99,44 @@ void run(int caseNumber, std::string caseName) {
     // TODO 11 во всех отмаскированных пикселях: заполните эту картинку с относительными смещениями - случайными смещениями (но чтобы они и их окрестность 5х5 не выходила за пределы картинки)
     // TODO 12 во всех отмаскированных пикселях: замените цвет пиксела А на цвет пикселя Б на который указывает относительное смещение пикселя А
     for(auto& i : masked){
-        int dc = random.next(2, colsNum-2);
-        int dr = random.next(2,rowsNum-2);
-        shift.at<cv::Vec2d>(i.first, i.second) = cv::Vec2d(dr, dc);
-        original.at<cv::Vec3b>(i.first, i.second) = original.at<cv::Vec3b>(dr,dc);
+        int dc = random.next(2, colsNum-3) - i.second;
+        int dr = random.next(2,rowsNum-3) - i.first;
+        while(isPixelMasked(mask, dr + i.first, dc + i.second)){
+            dc = random.next(2, colsNum-3) - i.second;
+            dr = random.next(2,rowsNum-3) - i.first;
+        }
+        shift.at<cv::Vec2i>(i.first, i.second) = cv::Vec2i(dr, dc);
+        original.at<cv::Vec3b>(i.first, i.second) = original.at<cv::Vec3b>(dr + i.first,dc + i.second);
     }
     // TODO 13 сохраните получившуюся картинку на диск
     cv::imwrite(resultsDir + "3randomShifting.png", original);
     // TODO 14 выполняйте эти шаги 11-13 много раз, например 1000 раз (оберните просто в цикл, сохраняйте картинку на диск только на каждой десятой или сотой итерации)
     // TODO 15 теперь давайте заменять значение относительного смещения на новой только если новая случайная гипотеза - лучше старой, добавьте оценку "насколько смещенный патч 5х5 похож на патч вокруг пикселя если их наложить"
 
-    for(int xd = 0; xd < 1000; ++xd){
+    for(int xd = 0; xd < 500; ++xd){
         for(auto& i : masked){
-            int dr = random.next(2,rowsNum-2);
-            int dc = random.next(2, colsNum-2);
-            int r = shift.at<cv::Vec2d>(i.first, i.second)[0];
-            int c = shift.at<cv::Vec2d>(i.first, i.second)[1];
-            original.at<cv::Vec3b>(i.first, i.second) = mask.at<cv::Vec3b>(dr,dc);
+            int dc = random.next(2, colsNum-3) - i.second;
+            int dr = random.next(2,rowsNum-3) - i.first;
+            while(isPixelMasked(mask, dr + i.first, dc + i.second)){
+                dc = random.next(2, colsNum-3) - i.second;
+                dr = random.next(2,rowsNum-3) - i.first;
+            }
+            int r = shift.at<cv::Vec2i>(i.first, i.second)[0];
+            int c = shift.at<cv::Vec2i>(i.first, i.second)[1];
+            int escNew = estimateQuality(original, i.first, i.second, i.first + dr, i.second + dc);
+            int esc = estimateQuality(original, i.first, i.second, i.first + r, i.second + c);
+            if(escNew < esc){
+                original.at<cv::Vec3b>(i.first, i.second) = original.at<cv::Vec3b>(dr+i.first,dc+i.second);
+                shift.at<cv::Vec2i>(i.first, i.second)[0] = dr;
+                shift.at<cv::Vec2i>(i.first, i.second)[0] = dc;
+            }
+        }
+        if(xd % 100 == 0){
+            std::cout << "save image " << xd / 100 + 4 << std::endl;
+            cv::imwrite(resultsDir + "ture_orig" + std::to_string(xd / 100 + 4) + ".png", original);
         }
     }
+
 
     // Ориентировочный псевдокод-подсказка получившегося алгоритма:
     // cv::Mat shifts(...); // матрица хранящая смещения, изначально заполнена парами нулей
@@ -151,13 +170,13 @@ void run(int caseNumber, std::string caseName) {
 
 int main() {
     try {
-        run(1, "mic");
+        //run(1, "mic");
         // TODO протестируйте остальные случаи:
-//        run(2, "flowers");
-//        run(3, "baloons");
-//        run(4, "brickwall");
-//        run(5, "old_photo");
-//        run(6, "your_data"); // TODO придумайте свой случай для тестирования (рекомендуется не очень большое разрешение, например 300х300)
+        run(2, "flowers");
+        //run(3, "baloons");
+        //run(4, "brickwall");
+        //run(5, "old_photo");
+        //run(6, "your_data"); // TODO придумайте свой случай для тестирования (рекомендуется не очень большое разрешение, например 300х300)
 
         return 0;
     } catch (const std::exception &e) {
