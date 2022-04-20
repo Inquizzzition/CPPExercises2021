@@ -15,6 +15,7 @@
 
 
 // Эта функция говорит нам правда ли пиксель отмаскирован, т.е. отмечен как "удаленный", т.е. белый
+// j - rows i - cols
 bool isPixelMasked(cv::Mat &mask, int j, int i) {
     rassert(j >= 0 && j < mask.rows, 372489347280017);
     rassert(i >= 0 && i < mask.cols, 372489347280018);
@@ -94,6 +95,23 @@ void propagation(cv::Mat& mask, cv::Mat& shift, cv::Mat& original, std::pair<int
     }
 }
 
+void search(cv::Mat& mask, cv::Mat& shift, cv::Mat& original, FastRandom& random){
+    std::vector<std::pair<int,int>> masked;
+    for(int i = 0; i < original.cols; ++i){
+        for(int j = 0; j < original.rows; ++j){
+            if(isPixelMasked(mask, j, i)){
+                masked.emplace_back(std::make_pair(j,i));
+            }
+        }
+    }
+    for(int xd = 0; xd < 100; ++xd){
+        for(auto& i : masked){
+            refinement(mask, shift, original, i, random);
+            propagation(mask, shift, original, i, random);
+        }
+    }
+}
+
 void run(int caseNumber, std::string caseName) {
     std::cout << "_________Case #" << caseNumber << ": " <<  caseName << "_________" << std::endl;
 
@@ -117,13 +135,11 @@ void run(int caseNumber, std::string caseName) {
     cv::imwrite(resultsDir + "1mask.png", mask);
 
     int maskedPixelNumber = 0;
-    std::vector<std::pair<int,int>> masked;
     for(int i = 0; i < original.cols; ++i){
         for(int j = 0; j < original.rows; ++j){
             if(isPixelMasked(mask, j, i)){
                 original.at<cv::Vec3b>(j,i) = mask.at<cv::Vec3b>(j,i);
                 maskedPixelNumber++;
-                masked.emplace_back(std::make_pair(j,i));
             }
         }
     }
@@ -131,39 +147,55 @@ void run(int caseNumber, std::string caseName) {
     FastRandom random(32542341); // этот объект поможет вам генерировать случайные гипотезы
     const int colsNum = original.cols;
     const int rowsNum = original.rows;
-    cv::Mat shift(mask.rows, mask.cols, CV_32SC2);
-    for(auto& i : masked){
-        int dc = random.next(2, colsNum-3) - i.second;
-        int dr = random.next(2,rowsNum-3) - i.first;
-        while(isPixelMasked(mask, dr + i.first, dc + i.second)){
-            dc = random.next(2, colsNum-3) - i.second;
-            dr = random.next(2,rowsNum-3) - i.first;
-        }
-        shift.at<cv::Vec2i>(i.first, i.second) = cv::Vec2i(dr, dc);
-        original.at<cv::Vec3b>(i.first, i.second) = original.at<cv::Vec3b>(dr + i.first,dc + i.second);
-    }
     cv::imwrite(resultsDir + "3randomShifting.png", original);
     std::vector<std::pair<cv::Mat, cv::Mat>> pyramid;
+    std::vector<cv::Mat> shiftpyr;
     cv::Mat tempOrg = original.clone();
     cv::Mat tempMsk = mask.clone();
     for(int i = 0; i < 8; ++i){
+        cv::Mat shift(tempOrg.rows, tempOrg.cols, CV_32SC2);
         pyramid.emplace_back(std::make_pair(tempOrg.clone(), tempMsk.clone()));
+        std::cout << "layer: " << i << " " << tempOrg.cols << " " << tempOrg.rows << std::endl;
+        shiftpyr.emplace_back(shift.clone());
         cv::pyrDown(tempOrg, tempOrg);
         cv::pyrDown(tempMsk, tempMsk);
     }
-    for(int kx = 7; kx >= 0; --kx){
+    for(int c = 0; c < pyramid.back().first.cols; ++c){
+        for(int r = 0; r < pyramid.back().first.rows; ++r){
+            if(isPixelMasked(pyramid.back().second, r, c)){
+                int dc = random.next(2, colsNum-3) - c;
+                int dr = random.next(2,rowsNum-3) - r;
+                while(isPixelMasked(pyramid.back().second, dr + r, dc + c)){
+                    dc = random.next(2, colsNum-3) - c;
+                    dr = random.next(2,rowsNum-3) - r;
+                }
+                shiftpyr.back().at<cv::Vec2i>(r, c) = cv::Vec2i(dr, dc);
+                pyramid.back().first.at<cv::Vec3b>(r, c) = pyramid.back().first.at<cv::Vec3b>(dr + r,dc + c);
+            }
+        }
+    }
+    //r, c -> (2r,2c); (2r+1, 2c); (2r + 2c+1); (2r + 1, 2c + 1);
+    //r, c -> r/2 c/2
+    for(int i = pyramid.size()-1; i >= 0; --i){
+        search(pyramid[i].second, shiftpyr[i], pyramid[i].first, random);
 
-    }
-    for(int xd = 0; xd < 200; ++xd){
-        for(auto& i : masked){
-            refinement(mask, shift, original, i, random);
-            propagation(mask, shift, original, i, random);
+        std::cout << "save image " << i << std::endl;
+        cv::imwrite(resultsDir + "ture_orig" + std::to_string(i) + ".png", original);
+
+        if(i > 0){
+            for(int c = 0; c < pyramid[i-1].first.cols; ++c){
+                for(int r = 0; r < pyramid[i-1].first.rows; ++r){
+                    if(isPixelMasked(pyramid[i-1].second, r, c)){
+                        pyramid[i-1].first.at<cv::Vec3b>(r,c) = pyramid[i].first.at<cv::Vec3b>(r/2, c/2);
+                        shiftpyr[i-1].at<cv::Vec2i>(r,c) = shiftpyr[i-1].at<cv::Vec2i>(r/2,c/2);
+                    }
+                }
+            }
         }
-        if(xd % 50 == 0){
-            std::cout << "save image " << xd / 50<< std::endl;
-            cv::imwrite(resultsDir + "ture_orig" + std::to_string(xd / 50) + ".png", original);
-        }
+        //shiftnew.at<cv::Vec3b>(1,1) = original.at<cv::Vec3b>(1,1);
     }
+    std::cout << "save final image"  << std::endl;
+    cv::imwrite(resultsDir + "final.png", original);
 }
 
 
